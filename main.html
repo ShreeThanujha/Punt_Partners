@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text Editor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    #editor {
+      width: 100%;
+      height: 300px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      font-size: 16px;
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+    select, input[type="checkbox"] {
+      margin-right: 10px;
+    }
+    #buttons {
+      margin-top: 10px;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label for="fontFamily">Font Family:</label>
+    <select id="fontFamily"></select>
+    <label for="fontWeight">Font Weight:</label>
+    <select id="fontWeight"></select>
+    <label for="italicToggle">Italic:</label>
+    <input type="checkbox" id="italicToggle">
+  </div>
+  <textarea id="editor"></textarea>
+  <div id="buttons">
+    <button id="saveButton">Save</button>
+    <button id="resetButton">Reset</button>
+  </div>
+
+  <script>
+    const editor = document.getElementById('editor');
+    const fontFamilySelector = document.getElementById('fontFamily');
+    const fontWeightSelector = document.getElementById('fontWeight');
+    const italicToggle = document.getElementById('italicToggle');
+    const saveButton = document.getElementById('saveButton');
+    const resetButton = document.getElementById('resetButton');
+
+    let fontsData = {};
+
+    const loadFonts = async () => {
+      try {
+        const response = await fetch('fonts.json'); // Adjust the path if necessary
+        fontsData = await response.json();
+
+        // Populate font family dropdown
+        Object.keys(fontsData).forEach(font => {
+          const option = document.createElement('option');
+          option.value = font;
+          option.textContent = font;
+          fontFamilySelector.appendChild(option);
+        });
+
+        loadFromLocalStorage(); // Load saved data from localStorage
+      } catch (error) {
+        console.error('Error loading fonts:', error);
+      }
+    };
+
+    const loadFontWeights = (fontFamily) => {
+      fontWeightSelector.innerHTML = ''; // Clear previous options
+
+      if (fontsData[fontFamily]) {
+        const variants = Object.keys(fontsData[fontFamily]);
+
+        // Populate font weight dropdown
+        variants.forEach(variant => {
+          const option = document.createElement('option');
+          option.value = variant;
+          option.textContent = variant
+            .replace('italic', ' Italic')
+            .replace(/(\d+)/, ' $1'); // Display weights in a readable format
+          fontWeightSelector.appendChild(option);
+        });
+
+        validateSelectedVariant(); // Ensure selected variant is valid
+      }
+    };
+
+    const validateSelectedVariant = () => {
+      const selectedFontFamily = fontFamilySelector.value;
+      const selectedVariant = fontWeightSelector.value;
+      const variants = Object.keys(fontsData[selectedFontFamily] || {});
+
+      let closestVariant = selectedVariant;
+
+      if (!variants.includes(selectedVariant)) {
+        const isItalic = selectedVariant.includes('Italic');
+        const weight = parseInt(selectedVariant.replace('Italic', ''), 10);
+
+        const sortedVariants = variants.sort((a, b) => {
+          const aWeight = parseInt(a.replace('italic', ''), 10);
+          const bWeight = parseInt(b.replace('italic', ''), 10);
+          return Math.abs(weight - aWeight) - Math.abs(weight - bWeight);
+        });
+
+        closestVariant = isItalic ? sortedVariants.find(v => v.includes('italic')) : sortedVariants[0];
+
+        if (!closestVariant) {
+          closestVariant = sortedVariants[0];
+        }
+      }
+
+      fontWeightSelector.value = closestVariant;
+      italicToggle.checked = closestVariant.includes('italic');
+    };
+
+    const applyFont = () => {
+      const fontFamily = fontFamilySelector.value;
+      const variant = fontWeightSelector.value;
+
+      const isItalic = italicToggle.checked && variant.includes('italic');
+      const weight = parseInt(variant.replace('italic', ''), 10) || '400';
+
+      editor.style.fontFamily = fontFamily;
+      editor.style.fontWeight = weight;
+      editor.style.fontStyle = isItalic ? 'italic' : 'normal';
+
+      // Load font stylesheet
+      const fontUrl = fontsData[fontFamily]?.[variant];
+      if (fontUrl) {
+        const existingLinks = document.querySelectorAll(`link[data-font="${fontFamily}-${variant}"]`);
+        if (existingLinks.length === 0) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = fontUrl;
+          link.setAttribute('data-font', `${fontFamily}-${variant}`);
+          document.head.appendChild(link);
+        }
+      }
+
+      saveToLocalStorage(); // Save current settings to localStorage
+    };
+
+    const saveToLocalStorage = () => {
+      localStorage.setItem('editorContent', editor.value);
+      localStorage.setItem('fontFamily', fontFamilySelector.value);
+      localStorage.setItem('fontWeight', fontWeightSelector.value);
+      localStorage.setItem('isItalic', italicToggle.checked);
+    };
+
+    const loadFromLocalStorage = () => {
+      const savedContent = localStorage.getItem('editorContent');
+      const savedFontFamily = localStorage.getItem('fontFamily');
+      const savedFontWeight = localStorage.getItem('fontWeight');
+      const savedIsItalic = localStorage.getItem('isItalic');
+
+      if (savedContent) {
+        editor.value = savedContent;
+      }
+      if (savedFontFamily && fontsData[savedFontFamily]) {
+        fontFamilySelector.value = savedFontFamily;
+        loadFontWeights(savedFontFamily);
+
+        if (savedFontWeight && Object.keys(fontsData[savedFontFamily]).includes(savedFontWeight)) {
+          fontWeightSelector.value = savedFontWeight;
+        } else {
+          validateSelectedVariant();
+        }
+        
+        if (savedIsItalic !== null) {
+          italicToggle.checked = JSON.parse(savedIsItalic);
+        }
+
+        applyFont(); // Apply saved settings
+      } else {
+        // Reset to defaults if saved values are invalid
+        resetEditor();
+      }
+    };
+
+    const resetEditor = () => {
+      editor.value = '';
+      fontFamilySelector.value = Object.keys(fontsData)[0];
+      loadFontWeights(fontFamilySelector.value);
+      italicToggle.checked = false;
+      applyFont();
+    };
+
+    fontFamilySelector.addEventListener('change', () => {
+      loadFontWeights(fontFamilySelector.value);
+      validateSelectedVariant();
+      applyFont();
+    });
+
+    fontWeightSelector.addEventListener('change', applyFont);
+    italicToggle.addEventListener('change', applyFont);
+    editor.addEventListener('input', saveToLocalStorage);
+    saveButton.addEventListener('click', saveToLocalStorage);
+    resetButton.addEventListener('click', resetEditor);
+
+    window.addEventListener('load', loadFonts); // Initialize with fonts
+  </script>
+</body>
+</html>
